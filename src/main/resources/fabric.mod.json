@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "examplemod",
+  "version": "1.0.0",
+  "name": "Example Rust Mod",
+  "description": "A Fabric mod that calls a Rust library.",
+  "authors": ["YourName"],
+  "license": "MIT",
+  "environment": "*",
+
+  "entrypoints": {
+    "main": [
+      "com.example.ExampleMod"
+    ]
+  },
+
+  "depends": {
+    "fabricloader": ">=0.14.21",
+    "minecraft": "1.21.10",
+    "fabric-api": "0.136.0+1.21.10"
+  }
+}

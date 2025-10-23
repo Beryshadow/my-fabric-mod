@@ -1,0 +1,187 @@
+plugins {
+    id 'java'
+    id 'fabric-loom' version '1.11-SNAPSHOT'  // Use a version compatible with your setup
+}
+
+group = project.property("maven_group")
+version = project.property("mod_version")
+archivesBaseName = project.property("archives_base_name")
+
+repositories {
+    mavenCentral()
+    maven { url = "https://maven.fabricmc.net/" }
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${minecraft_version}"
+    mappings "net.fabricmc:yarn:${yarn_mappings}:v2"
+
+    implementation 'com.github.jnr:jnr-ffi:2.2.17'
+    implementation 'com.github.jnr:jffi:1.3.13'
+
+
+    modImplementation "net.fabricmc:fabric-loader:${loader_version}"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${fabric_api_version}"
+}
+
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+}
+
+configurations.all {
+    resolutionStrategy.eachDependency { DependencyResolveDetails details ->
+        if (details.requested.group == 'com.github.jnr' && details.requested.name == 'jffi') {
+            details.useVersion '1.3.13'
+            details.because 'Needed for modern native layout expected by jnr-ffi'
+        }
+    }
+}
+
+tasks.register("includeJnrClasses", Copy) {
+    from({
+        configurations.runtimeClasspath.findAll {
+            (it.name.contains("jnr-ffi") || it.name.contains("jffi")) && it.name.endsWith(".jar")
+        }.collect { zipTree(it) }
+    }) {
+        duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+        include "jnr/**"
+        include "jnrposix/**"
+        include "com/kenai/**"
+        include "jni/**" // ✅ this is where libjffi-1.3.so is expected
+    }
+
+    into("$buildDir/tmp/jnrincludes")
+}
+
+tasks.named("jar") {
+    dependsOn("includeJnrClasses")
+
+    from("$buildDir/tmp/jnrincludes") {
+        include "jnr/**"
+        include "com/kenai/**"
+        include "jni/**" // ✅ jffi will look for native libs here
+    }
+}
+
+
+
+// def rustProjectDir = file("${project.property("rust_project_dir")}")
+// def rustTargetDir = file("${rustProjectDir}/target/release")
+// def nativeOutputDir = file("$buildDir/libs/native")
+
+// def os = org.gradle.internal.os.OperatingSystem.current()
+// def libExt = os.isWindows() ? ".dll" : (os.isMacOsX() ? ".dylib" : ".so")
+
+// tasks.register("compileRust") {
+//     group = "build"
+//     description = "Compile Rust native library"
+//     inputs.dir("${rustProjectDir}/src")
+//     outputs.dir(rustTargetDir)
+
+//     doLast {
+//         println("Compiling Rust project in ${rustProjectDir}")
+//         exec {
+//             workingDir rustProjectDir
+//             commandLine "cargo", "build", "--release"
+//         }
+//     }
+// }
+
+// tasks.register("copyRustLib", Copy) {
+//     group = "build"
+//     description = "Copy compiled Rust library into Java build output"
+//     dependsOn "compileRust"
+
+//     from(rustTargetDir) {
+//         include "myrustlib${libExt}"
+//         rename { fileName ->
+//             // On Unix builds might prefix `lib`, remove if present
+//             fileName.replaceFirst("^lib", "")
+//         }
+//     }
+//     into(nativeOutputDir)
+// }
+
+// tasks.named("processResources") {
+//     dependsOn "copyRustLib"
+// }
+
+// tasks.named("compileJava") {
+//     dependsOn "copyRustLib"
+// }
+
+def rustProjectDir = file("${project.property("rust_project_dir")}")
+def rustTargetDir = file("${rustProjectDir}/target")
+def nativeOutputDir = file("${rustProjectDir}/target/release")
+
+def os = org.gradle.internal.os.OperatingSystem.current()
+def libExt = os.isWindows() ? ".dll" : (os.isMacOsX() ? ".dylib" : ".so")
+
+tasks.register("compileRust") {
+    group = "build"
+    description = "Compile Rust native library"
+    inputs.dir("${rustProjectDir}/src")
+    outputs.dir(rustTargetDir)
+
+    doLast {
+        println("Compiling Rust project in ${rustProjectDir}")
+        exec {
+            workingDir rustProjectDir
+            commandLine "cargo", "build", "--release"
+        }
+    }
+}
+
+tasks.register("copyRustLib", Copy) {
+    group = "release"
+    description = "Copy compiled Rust library into Java build output"
+    dependsOn "compileRust"
+
+    from(rustTargetDir) {
+        include "libmyrustlib${libExt}"
+        rename { fileName ->
+         // Remove 'lib' prefix on Unix systems, if present
+         fileName.replaceFirst("^lib", "")
+        }
+    }
+    into(nativeOutputDir)
+}
+
+tasks.named("processResources") {
+    dependsOn "copyRustLib"
+}
+
+tasks.named("compileJava") {
+    dependsOn "copyRustLib"
+}
+
+
+
+jar {
+    dependsOn(copyRustLib)
+
+    from(nativeOutputDir) {
+        include "libmyrustlib${libExt}"
+        into("/native")
+    }
+
+    doFirst {
+        println "▶️  Adding native lib from: $nativeOutputDir"
+        def libFile = new File(nativeOutputDir, "libmyrustlib${libExt}")
+        if (libFile.exists()) {
+            println "✅ Found native lib: ${libFile.absolutePath}"
+        } else {
+            println "❌ Native lib NOT FOUND: ${libFile.absolutePath}"
+        }
+    }
+
+    doLast {
+        println "📦 Final JAR built at: ${archiveFile.get().asFile.absolutePath}"
+        println "📂 Contents of nativeOutputDir:"
+        nativeOutputDir.listFiles()?.each {
+            println " - ${it.name}"
+        }
+    }
+}

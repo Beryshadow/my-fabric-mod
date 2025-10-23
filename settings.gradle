@@ -1,0 +1,9 @@
+pluginManagement {
+    repositories {
+        // Required to find 'fabric-loom'
+        maven { url = "https://maven.fabricmc.net/" }
+        gradlePluginPortal() // also needed for standard plugins
+    }
+}
+
+rootProject.name = 'examplemod'
